@@ -27,6 +27,7 @@ chrono = "0.4"
 rand = "0.4"
 serde_json = { version = "1.0" }
 tokio = { version = "1", features = [ "io-util", "macros", "rt", "rt-multi-thread", "sync", "net", "time" ] }
+actix-web = "4.3.1"
 
 # RGB and related
 amplify = "3.13.0"

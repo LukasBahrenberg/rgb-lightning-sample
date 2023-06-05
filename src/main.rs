@@ -10,6 +10,8 @@ mod hex_utils;
 mod proxy;
 mod rgb_utils;
 
+mod restapi;
+
 use crate::bdk_utils::{broadcast_tx, get_bdk_wallet, get_bdk_wallet_seckey, sync_wallet};
 use crate::bitcoind_client::BitcoindClient;
 use crate::disk::FilesystemLogger;
@@ -1250,26 +1252,52 @@ async fn start_ldk() {
 		});
 	}
 
+	// Create data struct usable by rest api -> actix web server
+	use crate::restapi::AppDataStruct;
+
+	let api_app_data = AppDataStruct {
+		peer_manager: Arc::clone(&peer_manager),
+		channel_manager: Arc::clone(&channel_manager),
+		keys_manager: Arc::clone(&keys_manager),
+		network_graph: Arc::clone(&network_graph),
+		onion_messenger: Arc::clone(&onion_messenger),
+		inbound_payments: inbound_payments.clone(),
+		outbound_payments: outbound_payments.clone(),
+		ldk_data_dir: ldk_data_dir.clone(),
+		network: network.clone(),
+		logger: Arc::clone(&logger),
+		bitcoind_client: Arc::clone(&bitcoind_client),
+		rgb_node_client: Arc::clone(&rgb_node_client),
+		proxy_client: proxy_client.clone(),
+		proxy_url: proxy_url.to_string().clone(),
+		wallet_arc: wallet.clone(),
+		electrum_url: electrum_url.to_string().clone(),
+	};
+
+	// Start the REST API instead of CLI. Todo: let both run at the same time.
+	let _ = restapi::start_api(api_app_data).await;
+
 	// Start the CLI.
-	cli::poll_for_user_input(
-		Arc::clone(&peer_manager),
-		Arc::clone(&channel_manager),
-		Arc::clone(&keys_manager),
-		Arc::clone(&network_graph),
-		Arc::clone(&onion_messenger),
-		inbound_payments,
-		outbound_payments,
-		ldk_data_dir.clone(),
-		network,
-		Arc::clone(&logger),
-		Arc::clone(&bitcoind_client),
-		Arc::clone(&rgb_node_client),
-		proxy_client.clone(),
-		proxy_url,
-		wallet.clone(),
-		electrum_url.to_string(),
-	)
-	.await;
+	// cli::poll_for_user_input(
+	// 	Arc::clone(&peer_manager),
+	// 	Arc::clone(&channel_manager),
+	// 	Arc::clone(&keys_manager),
+	// 	Arc::clone(&network_graph),
+	// 	Arc::clone(&onion_messenger),
+	// 	inbound_payments,
+	// 	outbound_payments,
+	// 	ldk_data_dir.clone(),
+	// 	network,
+	// 	Arc::clone(&logger),
+	// 	Arc::clone(&bitcoind_client),
+	// 	Arc::clone(&rgb_node_client),
+	// 	proxy_client.clone(),
+	// 	proxy_url,
+	// 	wallet.clone(),
+	// 	electrum_url.to_string(),
+	// )
+	// .await;
+
 
 	// Disconnect our peers and stop accepting new connections. This ensures we don't continue
 	// updating our channel data after we've stopped the background processor.
