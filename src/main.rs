@@ -1232,6 +1232,10 @@ async fn start_ldk() {
 		}
 	});
 
+	// Derive rest api port from ldk_peer_listening_port before args value move
+	let rest_api_port = args.ldk_peer_listening_port.clone() + 10000;
+	println!("REST API listening on port {}", rest_api_port);
+
 	// Regularly broadcast our node_announcement. This is only required (or possible) if we have
 	// some public channels, and is only useful if we have public listen address(es) to announce.
 	// In a production environment, this should occur only after the announcement of new channels
@@ -1251,6 +1255,8 @@ async fn start_ldk() {
 			}
 		});
 	}
+
+
 
 	// Create data struct usable by rest api -> actix web server
 	use crate::restapi::AppDataStruct;
@@ -1275,7 +1281,7 @@ async fn start_ldk() {
 	};
 
 	// Start the REST API instead of CLI. Todo: let both run at the same time.
-	let _ = restapi::start_api(api_app_data).await;
+	let _ = restapi::start_api(api_app_data, rest_api_port).await;
 
 	// Start the CLI.
 	// cli::poll_for_user_input(
@@ -1297,7 +1303,6 @@ async fn start_ldk() {
 	// 	electrum_url.to_string(),
 	// )
 	// .await;
-
 
 	// Disconnect our peers and stop accepting new connections. This ensures we don't continue
 	// updating our channel data after we've stopped the background processor.

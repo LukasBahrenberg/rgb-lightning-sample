@@ -143,13 +143,12 @@ pub struct AppDataStruct {
 
 pub(crate) async fn start_api(
 	api_app_data: AppDataStruct,
+	rest_api_port: u16,
 ) -> std::io::Result<()> 
 {
 	println!("LDK startup successful. This is the REST API derived from the rgb cli tool.");
 	println!("LDK logs are available at <your-supplied-ldk-data-dir-path>/.ldk/logs");
 	println!("Local Node ID is {}", api_app_data.channel_manager.get_our_node_id());
-    
-	let port = 6000;
 
 	// let app_data = AppDataStruct{
 	let app_data = Data::new(Mutex::new(api_app_data));
@@ -159,7 +158,7 @@ pub(crate) async fn start_api(
 			.app_data(app_data.clone())
             .service(cliwrapper)
     })
-    .bind(("0.0.0.0", port))?
+    .bind(("0.0.0.0", rest_api_port))?
     .run()
     .await
 }
