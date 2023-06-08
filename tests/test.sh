@@ -48,14 +48,14 @@ _start_services() {
     mkdir -p data{rgb0,rgb1,rgb2,core,index,ldk0,ldk1,ldk2}
     case $NETWORK in
         regtest)
-            docker compose --profile=regtest up -d
+            docker compose --profile=regtest --profile=default up -d
             echo
             echo "preparing bitcoind wallet"
             $BITCOIN_CLI createwallet miner >/dev/null
             $BITCOIN_CLI -rpcwallet=miner -generate 103 >/dev/null
             ;;
         testnet)
-            docker compose up -d
+            docker compose --profile=default up -d
             ;;
         *)
             _die "$bad_net_msg"

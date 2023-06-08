@@ -4,6 +4,7 @@ services:
   rgb-node0:
     container_name: rgb-node0
     image: rgbtools/rgb-node:0.9-ln
+    profiles: ['default']
     build: .
     environment:
       MYUID: 1000
@@ -20,6 +21,7 @@ services:
   rgb-node1:
     container_name: rgb-node1
     image: rgbtools/rgb-node:0.9-ln
+    profiles: ['default']
     build: .
     environment:
       MYUID: 1000
@@ -36,6 +38,7 @@ services:
   rgb-node2:
     container_name: rgb-node2
     image: rgbtools/rgb-node:0.9-ln
+    profiles: ['default']
     build: .
     environment:
       MYUID: 1000
@@ -81,3 +84,16 @@ services:
     profiles: ['regtest']
     ports:
       - 3000:3000
+  
+
+  # dockerize the ldk clients as well
+  ldk-client0:
+    container_name: ldk-node0
+    profiles: ['ldk']
+    build: 
+      dockerfile: ./docker/Dockerfile
+    volumes:
+      - ./datargb0:/datargb0
+    ports:
+      - ${CLIENT0_PEER_PORT}:${CLIENT0_PEER_PORT}
+      - ${CLIENT0_REST_PORT}:${CLIENT0_REST_PORT}
