@@ -1256,12 +1256,10 @@ async fn start_ldk() {
 		});
 	}
 
-
-
 	// Create data struct usable by rest api -> actix web server
 	use crate::restapi::AppDataStruct;
 
-	let api_app_data = AppDataStruct {
+	let shared_data = AppDataStruct {
 		peer_manager: Arc::clone(&peer_manager),
 		channel_manager: Arc::clone(&channel_manager),
 		keys_manager: Arc::clone(&keys_manager),
@@ -1280,29 +1278,34 @@ async fn start_ldk() {
 		electrum_url: electrum_url.to_string().clone(),
 	};
 
-	// Start the REST API instead of CLI. Todo: let both run at the same time.
-	let _ = restapi::start_api(api_app_data, rest_api_port).await;
+	
+	// Start the REST API in a parallel thread to CLI.
+	use std::thread;
+
+	thread::spawn(move || {
+			let _ = restapi::start_api(shared_data, rest_api_port);
+	});
 
 	// Start the CLI.
-	// cli::poll_for_user_input(
-	// 	Arc::clone(&peer_manager),
-	// 	Arc::clone(&channel_manager),
-	// 	Arc::clone(&keys_manager),
-	// 	Arc::clone(&network_graph),
-	// 	Arc::clone(&onion_messenger),
-	// 	inbound_payments,
-	// 	outbound_payments,
-	// 	ldk_data_dir.clone(),
-	// 	network,
-	// 	Arc::clone(&logger),
-	// 	Arc::clone(&bitcoind_client),
-	// 	Arc::clone(&rgb_node_client),
-	// 	proxy_client.clone(),
-	// 	proxy_url,
-	// 	wallet.clone(),
-	// 	electrum_url.to_string(),
-	// )
-	// .await;
+	cli::poll_for_user_input(
+		Arc::clone(&peer_manager),
+		Arc::clone(&channel_manager),
+		Arc::clone(&keys_manager),
+		Arc::clone(&network_graph),
+		Arc::clone(&onion_messenger),
+		inbound_payments,
+		outbound_payments,
+		ldk_data_dir.clone(),
+		network,
+		Arc::clone(&logger),
+		Arc::clone(&bitcoind_client),
+		Arc::clone(&rgb_node_client),
+		proxy_client.clone(),
+		proxy_url,
+		wallet.clone(),
+		electrum_url.to_string(),
+	)
+	.await;
 
 	// Disconnect our peers and stop accepting new connections. This ensures we don't continue
 	// updating our channel data after we've stopped the background processor.

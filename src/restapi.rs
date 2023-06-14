@@ -69,7 +69,7 @@ use strict_encoding::strict_deserialize;
 use strict_encoding::strict_serialize;
 use strict_encoding::StrictEncode;
 
-use actix_web::{ self, get, post, delete, web::{self, Data}, App, HttpResponse, HttpServer, Responder };
+use actix_web::{ self, get, post, delete, rt, web::{self, Data}, App, HttpResponse, HttpServer, Responder };
 pub use serde_json::{ self, Map, Value };
 
 const MIN_CREATE_UTXOS_SATS: u64 = 10000;
@@ -141,26 +141,26 @@ pub struct AppDataStruct {
 	pub electrum_url: String,
 }
 
-pub(crate) async fn start_api(
-	api_app_data: AppDataStruct,
+pub(crate) fn start_api(
+	shared_data: AppDataStruct,
 	rest_api_port: u16,
 ) -> std::io::Result<()> 
 {
-	println!("LDK startup successful. This is the REST API derived from the rgb cli tool.");
-	println!("LDK logs are available at <your-supplied-ldk-data-dir-path>/.ldk/logs");
-	println!("Local Node ID is {}", api_app_data.channel_manager.get_our_node_id());
+	println!("This is the REST API derived from the rgb cli tool running on a separate thread on port {}.", rest_api_port);
+	// println!("LDK logs are available at <your-supplied-ldk-data-dir-path>/.ldk/logs");
+	// println!("Local Node ID is {}", shared_data.channel_manager.get_our_node_id());
 
-	// let app_data = AppDataStruct{
-	let app_data = Data::new(Mutex::new(api_app_data));
-
-    HttpServer::new(move || {
-        App::new()
-			.app_data(app_data.clone())
-            .service(cliwrapper)
-    })
-    .bind(("0.0.0.0", rest_api_port))?
-    .run()
-    .await
+	let shared_data: Data<Mutex<AppDataStruct>> = Data::new(Mutex::new(shared_data));
+	
+	rt::System::new().block_on(
+		HttpServer::new(move || {
+			App::new()
+				.app_data(shared_data.clone())
+				.service(cliwrapper)
+		})
+		.bind(("0.0.0.0", rest_api_port))?
+		.run()
+	)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
