@@ -146,12 +146,10 @@ pub(crate) fn start_api(
 	rest_api_port: u16,
 ) -> std::io::Result<()> 
 {
-	println!("This is the REST API derived from the rgb cli tool running on a separate thread on port {}.", rest_api_port);
-	// println!("LDK logs are available at <your-supplied-ldk-data-dir-path>/.ldk/logs");
-	// println!("Local Node ID is {}", shared_data.channel_manager.get_our_node_id());
-
 	let shared_data: Data<Mutex<AppDataStruct>> = Data::new(Mutex::new(shared_data));
 	
+	println!("Starting REST API on port {}", rest_api_port);
+
 	rt::System::new().block_on(
 		HttpServer::new(move || {
 			App::new()
@@ -172,28 +170,28 @@ pub struct CliCommands {
 #[post("/cliwrapper")]
 async fn cliwrapper(
     request: String, 
-	app_data: Data<Mutex<AppDataStruct>>,
+	shared_data: Data<Mutex<AppDataStruct>>,
 ) -> impl Responder 
 {
-	let app_data: &mut AppDataStruct = &mut *app_data.lock().unwrap();
+	let shared_data: &mut AppDataStruct = &mut *shared_data.lock().unwrap();
 	
 	// Disassemble app_data
-	let peer_manager = app_data.peer_manager.clone();
-	let channel_manager = app_data.channel_manager.clone();
-	let keys_manager = app_data.keys_manager.clone();
-	let network_graph = app_data.network_graph.clone();
-	let onion_messenger = app_data.onion_messenger.clone();
-	let inbound_payments = app_data.inbound_payments.clone();
-	let outbound_payments = app_data.outbound_payments.clone();
-	let ldk_data_dir = app_data.ldk_data_dir.clone();
-	let network = app_data.network.clone();
-	let logger = app_data.logger.clone();
-	let bitcoind_client = app_data.bitcoind_client.clone();
-	let rgb_node_client = app_data.rgb_node_client.clone();
-	let proxy_client = app_data.proxy_client.clone();
-	let proxy_url = &app_data.proxy_url.clone();
-	let wallet_arc = app_data.wallet_arc.clone();
-	let electrum_url = app_data.electrum_url.clone();
+	let peer_manager = shared_data.peer_manager.clone();
+	let channel_manager = shared_data.channel_manager.clone();
+	let keys_manager = shared_data.keys_manager.clone();
+	let network_graph = shared_data.network_graph.clone();
+	let onion_messenger = shared_data.onion_messenger.clone();
+	let inbound_payments = shared_data.inbound_payments.clone();
+	let outbound_payments = shared_data.outbound_payments.clone();
+	let ldk_data_dir = shared_data.ldk_data_dir.clone();
+	let network = shared_data.network.clone();
+	let logger = shared_data.logger.clone();
+	let bitcoind_client = shared_data.bitcoind_client.clone();
+	let rgb_node_client = shared_data.rgb_node_client.clone();
+	let proxy_client = shared_data.proxy_client.clone();
+	let proxy_url = &shared_data.proxy_url.clone();
+	let wallet_arc = shared_data.wallet_arc.clone();
+	let electrum_url = shared_data.electrum_url.clone();
 	
 	// Parse request
 	println!("Raw request: {:?}", request);
