@@ -87,13 +87,13 @@ services:
   
 
   # dockerize the ldk clients as well
-  ldk-client0:
-    container_name: ldk-node0
-    profiles: ['ldk']
-    build: 
-      dockerfile: ./docker/Dockerfile
-    volumes:
-      - ./datargb0:/datargb0
-    ports:
-      - ${CLIENT0_PEER_PORT}:${CLIENT0_PEER_PORT}
-      - ${CLIENT0_REST_PORT}:${CLIENT0_REST_PORT}
+  # ldk-client0:
+  #   container_name: ldk-node0
+  #   profiles: ['ldk']
+  #   build: 
+  #     dockerfile: ./docker/Dockerfile
+  #   volumes:
+  #     - ./datargb0:/datargb0
+  #   ports:
+  #     - ${CLIENT0_PEER_PORT}:${CLIENT0_PEER_PORT}
+  #     - ${CLIENT0_REST_PORT}:${CLIENT0_REST_PORT}
