@@ -10,8 +10,8 @@ mod hex_utils;
 mod proxy;
 mod rgb_utils;
 
-mod restapi;
 mod request;
+mod restapi;
 
 use crate::bdk_utils::{broadcast_tx, get_bdk_wallet, get_bdk_wallet_seckey, sync_wallet};
 use crate::bitcoind_client::BitcoindClient;
@@ -1278,18 +1278,17 @@ async fn start_ldk() {
 		wallet_arc: wallet.clone(),
 		electrum_url: electrum_url.to_string().clone(),
 	};
-	
+
 	let shared_data_clone = shared_data.clone();
 
 	// Start the REST API in a parallel thread to CLI.
 	use std::thread;
 	thread::spawn(move || {
-			let _ = restapi::start_api(shared_data_clone, rest_api_port);
+		let _ = restapi::start_api(shared_data_clone, rest_api_port);
 	});
 
 	// Start the CLI.
-	cli::poll_for_user_input(shared_data)
-	.await;
+	cli::poll_for_user_input(shared_data).await;
 
 	// Disconnect our peers and stop accepting new connections. This ensures we don't continue
 	// updating our channel data after we've stopped the background processor.
