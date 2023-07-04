@@ -13,6 +13,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::request;
 pub(crate) struct FilesystemLogger {
 	data_dir: String,
 }
@@ -62,7 +63,7 @@ pub(crate) fn read_channel_peer_data(
 	let file = File::open(path)?;
 	let reader = BufReader::new(file);
 	for line in reader.lines() {
-		match cli::parse_peer_info(line.unwrap()) {
+		match request::parse_peer_info(line.unwrap()) {
 			Ok((pubkey, socket_addr)) => {
 				peer_data.insert(pubkey, socket_addr);
 			}

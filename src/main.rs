@@ -11,6 +11,7 @@ mod proxy;
 mod rgb_utils;
 
 mod restapi;
+mod request;
 
 use crate::bdk_utils::{broadcast_tx, get_bdk_wallet, get_bdk_wallet_seckey, sync_wallet};
 use crate::bitcoind_client::BitcoindClient;
@@ -1217,7 +1218,7 @@ async fn start_ldk() {
 						}
 						for (pubkey, peer_addr) in info.iter() {
 							if *pubkey == node_id {
-								let _ = cli::do_connect_peer(
+								let _ = request::do_connect_peer(
 									*pubkey,
 									peer_addr.clone(),
 									Arc::clone(&connect_pm),
@@ -1257,7 +1258,7 @@ async fn start_ldk() {
 	}
 
 	// Create data struct usable by rest api -> actix web server
-	use crate::restapi::AppDataStruct;
+	use crate::request::AppDataStruct;
 
 	let shared_data = AppDataStruct {
 		peer_manager: Arc::clone(&peer_manager),
@@ -1277,34 +1278,17 @@ async fn start_ldk() {
 		wallet_arc: wallet.clone(),
 		electrum_url: electrum_url.to_string().clone(),
 	};
-
 	
+	let shared_data_clone = shared_data.clone();
+
 	// Start the REST API in a parallel thread to CLI.
 	use std::thread;
-
 	thread::spawn(move || {
-			let _ = restapi::start_api(shared_data, rest_api_port);
+			let _ = restapi::start_api(shared_data_clone, rest_api_port);
 	});
 
 	// Start the CLI.
-	cli::poll_for_user_input(
-		Arc::clone(&peer_manager),
-		Arc::clone(&channel_manager),
-		Arc::clone(&keys_manager),
-		Arc::clone(&network_graph),
-		Arc::clone(&onion_messenger),
-		inbound_payments,
-		outbound_payments,
-		ldk_data_dir.clone(),
-		network,
-		Arc::clone(&logger),
-		Arc::clone(&bitcoind_client),
-		Arc::clone(&rgb_node_client),
-		proxy_client.clone(),
-		proxy_url,
-		wallet.clone(),
-		electrum_url.to_string(),
-	)
+	cli::poll_for_user_input(shared_data)
 	.await;
 
 	// Disconnect our peers and stop accepting new connections. This ensures we don't continue
