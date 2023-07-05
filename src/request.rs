@@ -1740,6 +1740,11 @@ fn keysend<E: EntropySource> (
 	return response
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct InvoiceString {
+	invoice_string: String,
+}
+
 fn get_invoice(
 	amt_msat: u64, payment_storage: PaymentInfoStorage, channel_manager: &ChannelManager,
 	keys_manager: Arc<KeysManager>, network: Network, expiry_secs: u32,
@@ -1766,7 +1771,7 @@ fn get_invoice(
 		Some(amt_rgb),
 	) {
 		Ok(inv) => {
-			response = format!("EVENT: generated invoice: {}", inv);
+			response = serde_json::to_string(&InvoiceString {invoice_string: inv.to_string()}).unwrap();
 			println!("{}", response);
 			inv
 		}
@@ -1788,6 +1793,8 @@ fn get_invoice(
 		},
 	);
 	
+
+
 	return response;
 }
 
