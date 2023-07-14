@@ -1260,24 +1260,24 @@ async fn start_ldk() {
 	// Create data struct usable by rest api -> actix web server
 	use crate::request::AppDataStruct;
 
-	let shared_data = AppDataStruct {
-		peer_manager: Arc::clone(&peer_manager),
-		channel_manager: Arc::clone(&channel_manager),
-		keys_manager: Arc::clone(&keys_manager),
-		network_graph: Arc::clone(&network_graph),
-		onion_messenger: Arc::clone(&onion_messenger),
-		inbound_payments: inbound_payments.clone(),
-		outbound_payments: outbound_payments.clone(),
-		ldk_data_dir: ldk_data_dir.clone(),
-		network: network.clone(),
-		logger: Arc::clone(&logger),
-		bitcoind_client: Arc::clone(&bitcoind_client),
-		rgb_node_client: Arc::clone(&rgb_node_client),
-		proxy_client: proxy_client.clone(),
-		proxy_url: proxy_url.to_string().clone(),
-		wallet_arc: wallet.clone(),
-		electrum_url: electrum_url.to_string().clone(),
-	};
+	let shared_data = AppDataStruct::new(
+		Arc::clone(&peer_manager),
+		Arc::clone(&channel_manager),
+		Arc::clone(&keys_manager),
+		Arc::clone(&network_graph),
+		Arc::clone(&onion_messenger),
+		inbound_payments.clone(),
+		outbound_payments.clone(),
+		ldk_data_dir.clone(),
+		network.clone(),
+		Arc::clone(&logger),
+		Arc::clone(&bitcoind_client),
+		Arc::clone(&rgb_node_client),
+		proxy_client.clone(),
+		proxy_url.to_string().clone(),
+		wallet.clone(),
+		electrum_url.to_string().clone(),
+	);
 
 	let shared_data_clone = shared_data.clone();
 

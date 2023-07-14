@@ -62,12 +62,14 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use std::convert::TryInto;
 use stens::AsciiString;
 use strict_encoding::strict_deserialize;
 use strict_encoding::strict_serialize;
 use strict_encoding::StrictEncode;
 
-pub use serde_json::{ self, Map, Value };
+use serde_json::{ self, Map, Value };
+use rand::Rng;
 
 const MIN_CREATE_UTXOS_SATS: u64 = 10000;
 const UTXO_NUM: u8 = 10;
@@ -127,15 +129,61 @@ pub(crate) struct AppDataStruct {
 	pub(crate) onion_messenger: Arc<OnionMessenger>,
 	pub(crate) inbound_payments: PaymentInfoStorage,
 	pub(crate) outbound_payments: PaymentInfoStorage,
-	pub ldk_data_dir: String,
-	pub network: Network,
+	pub(crate) ldk_data_dir: String,
+	pub(crate) network: Network,
 	pub(crate) logger: Arc<disk::FilesystemLogger>,
-	pub bitcoind_client: Arc<BitcoindClient>,
-	pub rgb_node_client: Arc<Mutex<Client>>,
-	pub proxy_client: Arc<RestClient>,
-	pub proxy_url: String,
-	pub wallet_arc: Arc<Mutex<Wallet<SqliteDatabase>>>,
-	pub electrum_url: String,
+	pub(crate) bitcoind_client: Arc<BitcoindClient>,
+	pub(crate) rgb_node_client: Arc<Mutex<Client>>,
+	pub(crate) proxy_client: Arc<RestClient>,
+	pub(crate) proxy_url: String,
+	pub(crate) wallet_arc: Arc<Mutex<Wallet<SqliteDatabase>>>,
+	pub(crate) electrum_url: String,
+}
+
+impl AppDataStruct {
+	pub(crate) fn new(
+		peer_manager: Arc<PeerManager>,
+		channel_manager: Arc<ChannelManager>, 
+		keys_manager: Arc<KeysManager>,
+		network_graph: Arc<NetworkGraph>,
+		onion_messenger: Arc<OnionMessenger>,
+		inbound_payments: PaymentInfoStorage,
+		outbound_payments: PaymentInfoStorage,
+		ldk_data_dir: String,
+		network: Network,
+		logger: Arc<disk::FilesystemLogger>,
+		bitcoind_client: Arc<BitcoindClient>,
+		rgb_node_client: Arc<Mutex<Client>>,
+		proxy_client: Arc<RestClient>,
+		proxy_url: String,
+		wallet_arc: Arc<Mutex<Wallet<SqliteDatabase>>>,
+		electrum_url: String,
+	) -> Self {
+		Self {
+			peer_manager,
+			channel_manager,
+			keys_manager,
+			network_graph,
+			onion_messenger,
+			inbound_payments,
+			outbound_payments,
+			ldk_data_dir,
+			network,
+			logger,
+			bitcoind_client,
+			rgb_node_client,
+			proxy_client,
+			proxy_url,
+			wallet_arc,
+			electrum_url,
+		}
+	}
+}
+
+#[derive(Clone, Debug)]
+struct TestPreimageData {
+	payment_preimage: PaymentPreimage,
+	payment_hash: PaymentHash,
 }
 
 pub(crate) async fn handle_request(
@@ -1032,22 +1080,153 @@ pub(crate) async fn handle_request(
 				);
 				
 				return response.to_string()
+			}
+			"generatetestpreimage" => {
+				// create random preimage for testing
 				
+				let mut rng = rand::thread_rng();
+				let payment_preimage: [u8; 32] = rng.gen();
+				
+				let payment_preimage = PaymentPreimage(payment_preimage);
+				let payment_hash = PaymentHash(Sha256::hash(&payment_preimage.0).into_inner());
+
+				let test_preimage_data = TestPreimageData {
+					payment_preimage,
+					payment_hash,
+				};
+
+				let response = format!("This is a preimage / payment hash pair for testing: \n{:?} \nPreimage: {} \nPayment hash: {}", 
+					test_preimage_data,
+					hex::encode(&test_preimage_data.payment_preimage.0),
+					hex::encode(&test_preimage_data.payment_hash.0),
+				);
+				
+				return response.to_string()
+			}
+			"settlehodlinvoice" => {
+				let getinvoice_cmd =
+					"`settlehodlinvoice <preimage>`";
+				let preimage = words.next();
+
+				if preimage.is_none()
+				{
+					let response = format!("ERROR: getinvoice has 1 required arguments: {getinvoice_cmd}");
+					
+					return response.to_string()
+
+				}
+
+				let preimage: String = match preimage.unwrap().parse::<String>() {
+					Ok(preimage) => preimage,
+					Err(e) => {
+						let response = format!("ERROR: couldn't parse preimage: {e}");
+		
+						return response.to_string()
+					}
+				};
+
+				let response = settle_hodl_invoice(
+					preimage,
+					&*channel_manager,
+				);
+				
+				return response.to_string()
+			}
+			"gethodlinvoice" => {
+				let gethodlinvoice_cmd =
+					"`gethodlinvoice <amt_msats> <expiry_secs> <rgb_contract_id> <amt_rgb> <payment_hash>`";
+				let amt_str = words.next();
+				let expiry_secs_str = words.next();
+				let contract_id_str = words.next();
+				let amt_rgb_str = words.next();
+				let payment_hash = words.next();
+
+				if amt_str.is_none()
+					|| expiry_secs_str.is_none()
+					|| contract_id_str.is_none()
+					|| amt_rgb_str.is_none()
+					|| payment_hash.is_none()
+				{
+					let response = format!("ERROR: getinvoice has 5 required arguments: {gethodlinvoice_cmd}");
+					
+					return response.to_string()
+				}
+
+				let amt_msat: Result<u64, _> = amt_str.unwrap().parse();
+				if amt_msat.is_err() {
+					let response = format!("ERROR: getinvoice provided payment amount was not a number");
+					
+					return response.to_string()
+				}
+				let amt_msat = amt_msat.unwrap();
+				if amt_msat < INVOICE_MIN_MSAT {
+					let response = format!("ERROR: amt_msat cannot be less than {INVOICE_MIN_MSAT}");
+					
+					return response.to_string()
+				}
+
+				let expiry_secs: Result<u32, _> = expiry_secs_str.unwrap().parse();
+				if expiry_secs.is_err() {
+					let response = format!("ERROR: getinvoice provided expiry was not a number");
+					
+					return response.to_string()
+				}
+
+				let contract_id_str = contract_id_str.unwrap();
+				let contract_id = match ContractId::from_str(contract_id_str) {
+					Ok(cid) => cid,
+					Err(_) => {
+						let response = format!("ERROR: invalid contract ID: {contract_id_str}");
+						
+						return response.to_string()
+					}
+				};
+
+				let amt_rgb: u64 = match amt_rgb_str.unwrap().parse() {
+					Ok(amt) => amt,
+					Err(e) => {
+						let response = format!("ERROR: couldn't parse amt_rgb: {e}");
+		
+						return response.to_string()
+					}
+				};
+
+				let payment_hash: String = match payment_hash.unwrap().parse::<String>() {
+					Ok(hash) => hash,
+					Err(e) => {
+						let response = format!("ERROR: couldn't parse payment_hash: {e}");
+		
+						return response.to_string()
+					}
+				};
+
+				let response = get_hodl_invoice(
+					amt_msat,
+					Arc::clone(&inbound_payments),
+					&*channel_manager,
+					Arc::clone(&keys_manager),
+					network,
+					expiry_secs.unwrap(),
+					Arc::clone(&logger),
+					contract_id,
+					amt_rgb,
+					payment_hash,
+				);
+				
+				return response.to_string()
 			}
 			"connectpeer" => {
 				let peer_pubkey_and_ip_addr = words.next();
 				if peer_pubkey_and_ip_addr.is_none() {
 					let response = format!("ERROR: connectpeer requires peer connection info: `connectpeer pubkey@host:port`");
 					
-
 					return response.to_string()
 				}
 				let (pubkey, peer_addr) =
 					match parse_peer_info(peer_pubkey_and_ip_addr.unwrap().to_string()) {
 						Ok(info) => info,
 						Err(e) => {
-							let response = format!("{:?}", e.into_inner().unwrap());
-							
+							let response = format!("{:?}", e.into_inner().unwrap());						
 
 							return response.to_string()
 						}
@@ -1058,13 +1237,11 @@ pub(crate) async fn handle_request(
 				{
 					let response = format!("SUCCESS: connected to peer {}", pubkey);
 					
-
 					return response.to_string()
 				}
 				
 				let response = format!("ERROR: failed to connect to peer {}", pubkey);
 				
-
 				return response.to_string()
 			}
 			"disconnectpeer" => {
@@ -1072,7 +1249,6 @@ pub(crate) async fn handle_request(
 				if peer_pubkey.is_none() {
 					let response = format!("ERROR: disconnectpeer requires peer public key: `disconnectpeer <peer_pubkey>`");
 					
-
 					return response.to_string()
 				}
 
@@ -1082,7 +1258,6 @@ pub(crate) async fn handle_request(
 						Err(e) => {
 							let response = format!("ERROR: couldn't parse peer pubkey: {e}");
 							
-
 							return response.to_string()
 						}
 					};
@@ -1096,26 +1271,22 @@ pub(crate) async fn handle_request(
 				{
 					let response = format!("SUCCESS: disconnected from peer {}", peer_pubkey);
 					
-
 					return response.to_string()
 				}
 
 				let response = format!("ERROR: failed to disconnect from peer {}", peer_pubkey);
 				
-
 				return response.to_string()
 
 			}
 			"listchannels" => {
 				let response = list_channels(&channel_manager, &network_graph, ldk_data_dir.clone());
 				
-
 				return response.to_string()
 			}
 			"listpayments" => {
 				let response = list_payments(inbound_payments.clone(), outbound_payments.clone());
 				
-
 				return response.to_string()
 			}
 			"invoicestatus" => {
@@ -1123,14 +1294,12 @@ pub(crate) async fn handle_request(
 				if invoice.is_none() {
 					let response = format!("ERROR: invoicestatus requires an invoice: `invoicestatus <invoice>`");
 					
-
 					return response.to_string()
 				};
 				let invoice = match Invoice::from_str(invoice.unwrap()) {
 					Err(e) => {
 						let response = format!("ERROR: invalid invoice: {:?}", e);
 						
-
 						return response.to_string()
 					}
 					Ok(v) => v,
@@ -1138,7 +1307,6 @@ pub(crate) async fn handle_request(
 
 				let response = invoice_status(inbound_payments.clone(), invoice);
 				
-
 				return response.to_string()
 			}
 			"closechannel" => {
@@ -1146,14 +1314,12 @@ pub(crate) async fn handle_request(
 				if channel_id_str.is_none() {
 					let response = format!("ERROR: closechannel requires a channel ID: `closechannel <channel_id> <peer_pubkey>`");
 					
-
 					return response.to_string()
 				}
 				let channel_id_vec = hex_utils::to_vec(channel_id_str.unwrap());
 				if channel_id_vec.is_none() || channel_id_vec.as_ref().unwrap().len() != 32 {
 					let response = format!("ERROR: couldn't parse channel_id");
 					
-
 					return response.to_string()
 				}
 				let mut channel_id = [0; 32];
@@ -1163,7 +1329,6 @@ pub(crate) async fn handle_request(
 				if peer_pubkey_str.is_none() {
 					let response = format!("ERROR: closechannel requires a peer pubkey: `closechannel <channel_id> <peer_pubkey>`");
 					
-
 					return response.to_string()
 				}
 				let peer_pubkey_vec = match hex_utils::to_vec(peer_pubkey_str.unwrap()) {
@@ -1171,7 +1336,6 @@ pub(crate) async fn handle_request(
 					None => {
 						let response = format!("ERROR: couldn't parse peer_pubkey");
 						
-
 						return response.to_string()
 					}
 				};
@@ -1180,12 +1344,12 @@ pub(crate) async fn handle_request(
 					Err(_) => {
 						let response = format!("ERROR: couldn't parse peer_pubkey");
 						
-
 						return response.to_string()
 					}
 				};
 
 				let response = close_channel(channel_id, peer_pubkey, channel_manager.clone());
+				
 				return response
 			}
 			"forceclosechannel" => {
@@ -1193,14 +1357,12 @@ pub(crate) async fn handle_request(
 				if channel_id_str.is_none() {
 					let response = format!("ERROR: forceclosechannel requires a channel ID: `forceclosechannel <channel_id> <peer_pubkey>`");
 					
-
 					return response.to_string()
 				}
 				let channel_id_vec = hex_utils::to_vec(channel_id_str.unwrap());
 				if channel_id_vec.is_none() || channel_id_vec.as_ref().unwrap().len() != 32 {
 					let response = format!("ERROR: couldn't parse channel_id");
 					
-
 					return response.to_string()
 
 				}
@@ -1211,7 +1373,6 @@ pub(crate) async fn handle_request(
 				if peer_pubkey_str.is_none() {
 					let response = format!("ERROR: forceclosechannel requires a peer pubkey: `forceclosechannel <channel_id> <peer_pubkey>`");
 					
-
 					return response.to_string()
 				}
 				let peer_pubkey_vec = match hex_utils::to_vec(peer_pubkey_str.unwrap()) {
@@ -1219,7 +1380,6 @@ pub(crate) async fn handle_request(
 					None => {
 						let response = format!("ERROR: couldn't parse peer_pubkey");
 						
-
 						return response.to_string()
 					}
 				};
@@ -1228,12 +1388,12 @@ pub(crate) async fn handle_request(
 					Err(_) => {
 						let response = format!("ERROR: couldn't parse peer_pubkey");
 						
-
 						return response.to_string()
 					}
 				};
 
 				let response = force_close_channel(channel_id, peer_pubkey, channel_manager.clone());
+				
 				return response.to_string()
 			}
 			"nodeinfo" => {
@@ -1757,7 +1917,7 @@ fn get_invoice(
 		Network::Regtest => Currency::Regtest,
 		Network::Signet => Currency::Signet,
 	};
-	let mut response: String = String::new();
+	let response: String;
 	let invoice = match utils::create_invoice_from_channelmanager(
 		channel_manager,
 		keys_manager,
@@ -1769,7 +1929,8 @@ fn get_invoice(
 		None,
 		Some(contract_id),
 		Some(amt_rgb),
-	) {
+	)
+	{
 		Ok(inv) => {
 			response = serde_json::to_string(&InvoiceString {invoice_string: inv.to_string()}).unwrap();
 			println!("{}", response);
@@ -1793,8 +1954,72 @@ fn get_invoice(
 		},
 	);
 	
+	return response;
+}
 
+fn settle_hodl_invoice(
+	preimage: String, 
+	channel_manager: &ChannelManager,
+) -> String {
 
+	channel_manager.claim_funds(PaymentPreimage(hex::decode(preimage).unwrap().try_into().expect("preimage string slice has incorrect length")));
+
+	return "Payment claim seems to have succeeded! The invoice should be settled".to_string()
+} 
+
+fn get_hodl_invoice(
+	amt_msat: u64, payment_storage: PaymentInfoStorage, channel_manager: &ChannelManager,
+	keys_manager: Arc<KeysManager>, network: Network, expiry_secs: u32,
+	logger: Arc<disk::FilesystemLogger>, contract_id: ContractId, amt_rgb: u64, payment_hash: String,
+) -> String {
+	let mut payments = payment_storage.lock().unwrap();
+	let currency = match network {
+		Network::Bitcoin => Currency::Bitcoin,
+		Network::Testnet => Currency::BitcoinTestnet,
+		Network::Regtest => Currency::Regtest,
+		Network::Signet => Currency::Signet,
+	};
+	let response: String;
+	let payment_hash = PaymentHash(hex::decode(payment_hash).unwrap().try_into().expect("payment hash string slice has incorrect length"));
+	use std::time::SystemTime;
+	let invoice = match utils::create_invoice_from_channelmanager_and_duration_since_epoch_with_payment_hash(
+		channel_manager,
+		keys_manager,
+		logger,
+		currency,
+		Some(amt_msat),
+		"ldk-tutorial-node".to_string(),
+		Duration::new(SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs(), 0),
+		expiry_secs,
+		payment_hash,
+		None,
+		Some(contract_id),
+		Some(amt_rgb),
+	)
+	{
+		Ok(inv) => {
+			response = serde_json::to_string(&InvoiceString {invoice_string: inv.to_string()}).unwrap();
+			println!("{}", response);
+			inv
+		}
+		Err(e) => {
+			response = format!("ERROR: failed to create invoice: {:?}", e);
+			println!("{}", response);
+			return response;
+		}
+	};
+
+	let payment_hash = PaymentHash(invoice.payment_hash().clone().into_inner());
+	payments.insert(
+		payment_hash,
+		PaymentInfo {
+			preimage: None,
+			secret: Some(invoice.payment_secret().clone()),
+			status: HTLCStatus::Pending,
+			amt_msat: MillisatAmount(Some(amt_msat)),
+		},
+	);
+	
 	return response;
 }
 
