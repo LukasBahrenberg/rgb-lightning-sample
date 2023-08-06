@@ -34,7 +34,8 @@ async fn cliwrapper(request: String, shared_data: Data<Mutex<SharedData>>) -> im
 	println!("Parsed request: {:?}", parsed_request);
 	let line: String = parsed_request.commands;
 
-	let response = cli::handle_command(line, shared_data.clone()).await.unwrap();
+	let (response, _) = cli::handle_command(line, shared_data.clone()).await;
+	let response = response.unwrap();
 
 	HttpResponse::Ok().body(response)
 }

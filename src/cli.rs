@@ -199,8 +199,12 @@ pub(crate) async fn poll_for_user_input(
 			break;
 		}
 
-		let response = handle_command(line, shared_data.clone()).await.unwrap();
-		println!("{response}");
+		let (response, silent) = handle_command(line, shared_data.clone()).await;
+		let response = response.unwrap();
+
+		if !silent {
+			println!("{response}");
+		}
 
 		if response == "quitting" {
 			break;
@@ -211,7 +215,7 @@ pub(crate) async fn poll_for_user_input(
 pub(crate) async fn handle_command(
 	line: String, 
 	shared_data: SharedData,
-) -> Option<String> {
+) -> (Option<String>, bool) {
 
 	// disassemble shared_data
 	let peer_manager = shared_data.peer_manager.clone();
@@ -237,31 +241,31 @@ pub(crate) async fn handle_command(
 		match word {
 			"help" => { 
 				help();
-				let response = "help";
-				return Some(response.to_string());
+				let response = "help not displayed over api";
+				return (Some(response.to_string()), true);
 			},
 			"mine" => {
 				if network != Network::Regtest {
 					let response = ("ERROR: mine command is available only on regtest");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let num_blocks = words.next();
 
 				if num_blocks.is_none() {
 					let response = ("ERROR: mine has 1 required argument: `mine num_blocks`");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let num_blocks: Result<u16, _> = num_blocks.unwrap().parse();
 				if num_blocks.is_err() {
 					let response = ("ERROR: num_blocks must be a number");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				mine(&bitcoind_client, num_blocks.unwrap()).await;
 
 				let response = "mined blocks";
-				return Some(response.to_string());
+				return (Some(response.to_string()), true);
 			}
 			"listunspent" => {
 				let wallet = wallet_arc.lock().unwrap();
@@ -272,7 +276,7 @@ pub(crate) async fn handle_command(
 				for unspent in unspents {
 					response.push_str(&format!(" - {unspent:?}\n"));
 				}
-				return Some(response.to_string())
+				return (Some(response.to_string()), false)
 			}
 			"getaddress" => {
 				let wallet = wallet_arc.lock().unwrap();
@@ -281,7 +285,7 @@ pub(crate) async fn handle_command(
 					.expect("valid address")
 					.address;
 				let response = format!("Address: {address}");
-				return Some(response.to_string());
+				return (Some(response.to_string()), false);
 			}
 			"createutxos" => {
 				let wallet = wallet_arc.lock().unwrap();
@@ -309,7 +313,7 @@ pub(crate) async fn handle_command(
 						"ERROR: not enough funds, call getaddress and send {} satoshis",
 						MIN_CREATE_UTXOS_SATS - available
 					);
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let mut tx_builder = wallet.build_tx();
@@ -347,7 +351,7 @@ pub(crate) async fn handle_command(
 
 				sync_wallet(&wallet, electrum_url.clone());
 				let response = ("UTXO creation complete");
-				return Some(response.to_string());
+				return (Some(response.to_string()), false);
 			}
 			"issueasset" => {
 				let amount = words.next();
@@ -358,38 +362,38 @@ pub(crate) async fn handle_command(
 				if amount.is_none() || ticker.is_none() || name.is_none() || precision.is_none()
 				{
 					let response = ("ERROR: issueasset has 4 required arguments: `issueasset <amount> <ticker> <name> <precision>`");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let amount: Result<u64, _> = amount.unwrap().parse();
 				if amount.is_err() {
 					let response = ("ERROR: amount must be a number");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let ticker = ticker.unwrap();
 				if !ticker.is_ascii() {
 					let response = ("ERROR: ticker must be an ASCII string");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let name = name.unwrap();
 				if !name.is_ascii() {
 					let response = ("ERROR: name must be an ASCII string");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let precision: Result<u8, _> = precision.unwrap().parse();
 				if precision.is_err() {
 					let response = ("ERROR: precision must be a number");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				match check_uncolored_utxos(&ldk_data_dir).await {
 					Ok(_) => {}
 					Err(e) => {
 						let response = ("{e}");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				}
 				let outpoint = get_utxo(&ldk_data_dir).await.outpoint;
@@ -420,7 +424,7 @@ pub(crate) async fn handle_command(
 				drop(runtime);
 				drop_rgb_runtime(&PathBuf::from(ldk_data_dir.clone()));
 				let response = format!("Asset ID: {contract_id}");
-				return Some(response.to_string());
+				return (Some(response.to_string()), false);
 			}
 			"assetbalance" => {
 				let assetbalance_cmd = "`assetbalance <contract_id>`";
@@ -430,13 +434,13 @@ pub(crate) async fn handle_command(
 					let response = format!(
 						"ERROR: assetbalance has 1 required argument: `{assetbalance_cmd}`"
 					);
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let contract_id = ContractId::from_str(contract_id.unwrap());
 				if contract_id.is_err() {
 					let response = ("ERROR: contract_id must be a valid RGB asset ID");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let runtime = get_rgb_runtime(&PathBuf::from(ldk_data_dir.clone()));
@@ -449,15 +453,15 @@ pub(crate) async fn handle_command(
 					Ok(a) => a,
 					Err(e) => {
 						let response = ("{e}");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				};
 
 				drop(runtime);
 				drop_rgb_runtime(&PathBuf::from(ldk_data_dir.clone()));
 
-				let response = ("Asset balance: {total_rgb_amount}");
-				return Some(response.to_string());
+				let response = format!("Asset balance: {total_rgb_amount}");
+				return (Some(response.to_string()), false);
 			}
 			"sendasset" => {
 				let sendasset_cmd = "`sendasset <contract_id> <amt_rgb> <blinded_utxo>`";
@@ -467,13 +471,13 @@ pub(crate) async fn handle_command(
 
 				if contract_id.is_none() || amt_rgb_str.is_none() || blinded_utxo.is_none() {
 					let response = format!("ERROR: sendasset has 3 required arguments: `{sendasset_cmd}`");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let contract_id = ContractId::from_str(contract_id.unwrap());
 				if contract_id.is_err() {
 					let response = ("ERROR: contract_id must be a valid RGB asset ID");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let contract_id = contract_id.unwrap();
 
@@ -481,7 +485,7 @@ pub(crate) async fn handle_command(
 					Ok(amt) => amt,
 					Err(e) => {
 						let response = ("ERROR: couldn't parse amt_rgb: {e}");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				};
 
@@ -496,20 +500,20 @@ pub(crate) async fn handle_command(
 					Ok(a) => a,
 					Err(e) => {
 						let response = ("{e}");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				};
 
 				if amt_rgb > total_rgb_amount {
 					let response = ("ERROR: do not have enough RGB assets");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let blinded_utxo = blinded_utxo.unwrap();
 				let concealed_seal = SecretSeal::from_str(blinded_utxo);
 				if concealed_seal.is_err() {
 					let response = ("ERROR: blinded_utxo must be a valid RGB blinded UTXO");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let concealed_seal = concealed_seal.unwrap();
 
@@ -552,7 +556,7 @@ pub(crate) async fn handle_command(
 						Ok(_) => {}
 						Err(e) => {
 							let response = ("{e}");
-							return Some(response.to_string());
+							return (Some(response.to_string()), false);
 						}
 					}
 					let rgb_change_outpoint = get_utxo(&ldk_data_dir).await.outpoint;
@@ -626,7 +630,7 @@ pub(crate) async fn handle_command(
 				.await;
 				if res.is_err() || res.unwrap().result.is_none() {
 					let response = ("ERROR: unable to post consignment");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				wallet.sign(&mut psbt, SignOptions::default()).expect("able to sign");
@@ -641,14 +645,14 @@ pub(crate) async fn handle_command(
 
 				sync_wallet(&wallet, electrum_url.clone());
 				let response = format!("RGB send complete, txid: {}", tx.txid());
-				return Some(response.to_string());
+				return (Some(response.to_string()), false);
 			}
 			"receiveasset" => {
 				match check_uncolored_utxos(&ldk_data_dir).await {
 					Ok(_) => {}
 					Err(e) => {
 						let response = ("{e}");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				}
 				let outpoint = get_utxo(&ldk_data_dir).await.outpoint;
@@ -693,7 +697,7 @@ pub(crate) async fn handle_command(
 				fs::write(blinded_path, serialized_info).expect("successful file write");
 
 				let response = ("Blinded UTXO: {blinded_utxo}");
-				return Some(response.to_string());
+				return (Some(response.to_string()), false);
 			}
 			"refresh" => {
 				let blinded_dir = PathBuf::from_str(&ldk_data_dir)
@@ -708,7 +712,7 @@ pub(crate) async fn handle_command(
 						serde_json::from_str(&serialized_info).expect("valid blinded data");
 					if blinded_info.consumed {
 						let response = "";
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 
 					let blinded_utxo = blinded_info.seal.to_concealed_seal().to_string();
@@ -717,7 +721,7 @@ pub(crate) async fn handle_command(
 					let res = get_consignment(proxy_ref, proxy_url, blinded_utxo.clone()).await;
 					if res.is_err() || res.as_ref().unwrap().result.is_none() {
 						let response = ("WARNING: unable to get consignment");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 					let consignment = res.unwrap().result.unwrap();
 					let consignment_bytes =
@@ -754,7 +758,7 @@ pub(crate) async fn handle_command(
 					let validity = status.validity();
 					if !matches!(validity, Validity::Valid) {
 						let response = ("WARNING: error accepting transfer");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 
 					let wallet = wallet_arc.lock().unwrap();
@@ -764,7 +768,7 @@ pub(crate) async fn handle_command(
 				}
 
 				let response = ("Refresh complete");
-				return Some(response.to_string());
+				return (Some(response.to_string()), false);
 			}
 			"openchannel" => {
 				let peer_pubkey_and_ip_addr = words.next();
@@ -778,7 +782,7 @@ pub(crate) async fn handle_command(
 					|| contract_id.is_none() || channel_value_rgb.is_none()
 				{
 					let response = ("ERROR: openchannel has 5 required arguments: `openchannel pubkey@host:port chan_amt_satoshis push_amt_msatoshis rgb_contract_id chan_amt_rgb` [--public]");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let peer_pubkey_and_ip_addr = peer_pubkey_and_ip_addr.unwrap();
 				let (pubkey, peer_addr) =
@@ -786,14 +790,14 @@ pub(crate) async fn handle_command(
 						Ok(info) => info,
 						Err(e) => {
 							let response = format!("{:?}", e.into_inner().unwrap());
-							return Some(response.to_string());
+							return (Some(response.to_string()), false);
 						}
 					};
 
 				let chan_amt_sat: Result<u64, _> = channel_value_sat.unwrap().parse();
 				if chan_amt_sat.is_err() {
 					let response = ("ERROR: channel amount must be a number");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let chan_amt_sat = chan_amt_sat.unwrap();
 				if chan_amt_sat < OPENCHANNEL_MIN_SAT {
@@ -801,20 +805,20 @@ pub(crate) async fn handle_command(
 						"ERROR: channel amount must be equal or higher than {}",
 						OPENCHANNEL_MIN_SAT
 					);
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				if chan_amt_sat > OPENCHANNEL_MAX_SAT {
 					let response = format!(
 						"ERROR: channel amount must be equal or less than {}",
 						OPENCHANNEL_MAX_SAT
 					);
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let push_amt_msat: Result<u64, _> = push_value_msat.unwrap().parse();
 				if push_amt_msat.is_err() {
 					let response = ("ERROR: push amount must be a number");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let push_amt_msat = push_amt_msat.unwrap();
 				if push_amt_msat < DUST_LIMIT_MSAT {
@@ -822,20 +826,20 @@ pub(crate) async fn handle_command(
 						"ERROR: push amount must be equal or higher than the dust limit ({})",
 						DUST_LIMIT_MSAT
 					);
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let contract_id = ContractId::from_str(contract_id.unwrap());
 				if contract_id.is_err() {
 					let response = ("ERROR: contract_id must be a valid RGB asset ID");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let contract_id = contract_id.unwrap();
 
 				let chan_amt_rgb: Result<u64, _> = channel_value_rgb.unwrap().parse();
 				if chan_amt_rgb.is_err() {
 					let response = ("ERROR: channel RGB amount must be a number");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let chan_amt_rgb = chan_amt_rgb.unwrap();
 
@@ -850,7 +854,7 @@ pub(crate) async fn handle_command(
 					Ok(a) => a,
 					Err(e) => {
 						let response = ("{e}");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				};
 				drop(runtime);
@@ -858,7 +862,7 @@ pub(crate) async fn handle_command(
 
 				if chan_amt_rgb > total_rgb_amount {
 					let response = ("ERROR: do not have enough RGB assets");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				if connect_peer_if_necessary(pubkey, peer_addr, peer_manager.clone())
@@ -866,7 +870,7 @@ pub(crate) async fn handle_command(
 					.is_err()
 				{
 					let response = ("");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				};
 
 				let announce_channel = match words.next() {
@@ -874,7 +878,7 @@ pub(crate) async fn handle_command(
 					Some("--public=false") => false,
 					Some(_) => {
 						let response = ("ERROR: invalid `--public` command format. Valid formats: `--public`, `--public=true` `--public=false`");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 					None => false,
 				};
@@ -889,7 +893,7 @@ pub(crate) async fn handle_command(
 				);
 				if open_channel_result.is_err() {
 					let response = format!("ERROR: {:?}", open_channel_result.err().unwrap());
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let peer_data_path = format!("{}/channel_peer_data", ldk_data_dir.clone());
@@ -907,32 +911,32 @@ pub(crate) async fn handle_command(
 					remote_rgb_amount: 0,
 				};
 				write_rgb_channel_info(&PathBuf::from(&channel_rgb_info_path), &rgb_info);
-				// let response = "Channel opened";
-				// return Some(response.to_string());
+				let response = "Channel opened";
+				return (Some(response.to_string()), true);
 			}
 			"sendpayment" => {
 				let invoice_str = words.next();
 				if invoice_str.is_none() {
 					let response = ("ERROR: sendpayment requires an invoice: `sendpayment <invoice>`");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let invoice = match Invoice::from_str(invoice_str.unwrap()) {
 					Ok(inv) => inv,
 					Err(e) => {
 						let response = format!("ERROR: invalid invoice: {:?}", e);
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				};
 
 				if let Some(amt_msat) = invoice.amount_milli_satoshis() {
 					if amt_msat < INVOICE_MIN_MSAT {
 						let response = ("ERROR: msat amount in invoice cannot be less than {INVOICE_MIN_MSAT}");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				} else {
 					let response = ("ERROR: msat amount missing in invoice");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				send_payment(
@@ -943,7 +947,7 @@ pub(crate) async fn handle_command(
 				);
 
 				let response = "Payment sent";
-				return Some(response.to_string());
+				return (Some(response.to_string()), true);
 			}
 			"keysend" => {
 				let keysend_cmd = "`keysend <dest_pubkey> <amt_msat> <contract_id> <amt_rgb>`";
@@ -952,12 +956,12 @@ pub(crate) async fn handle_command(
 						Some(pk) => pk,
 						None => {
 							let response = ("ERROR: couldn't parse destination pubkey");
-							return Some(response.to_string());
+							return (Some(response.to_string()), false);
 						}
 					},
 					None => {
 						let response = format!("ERROR: keysend requires a destination pubkey: {keysend_cmd}");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				};
 				let amt_msat_str =
@@ -965,45 +969,45 @@ pub(crate) async fn handle_command(
 						Some(amt) => amt,
 						None => {
 							let response = format!("ERROR: keysend requires an amount in millisatoshis: {keysend_cmd}");
-							return Some(response.to_string());
+							return (Some(response.to_string()), false);
 						}
 					};
 				let amt_msat: u64 = match amt_msat_str.parse() {
 					Ok(amt) => amt,
 					Err(e) => {
 						let response = format!("ERROR: couldn't parse amount_msat: {}", e);
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				};
 				if amt_msat < HTLC_MIN_MSAT {
 					let response = format!("ERROR: amount_msat cannot be less than {HTLC_MIN_MSAT}");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let contract_id = match words.next() {
 					Some(contract_id_str) => match ContractId::from_str(contract_id_str) {
 						Ok(cid) => cid,
 						Err(_) => {
 							let response = format!("ERROR: invalid contract ID: {contract_id_str}");
-							return Some(response.to_string());
+							return (Some(response.to_string()), false);
 						}
 					},
 					None => {
 						let response = format!("ERROR: keysend requires a contract ID: {keysend_cmd}");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				};
 				let amt_rgb_str = match words.next() {
 					Some(amt) => amt,
 					None => {
 						let response = format!("ERROR: keysend requires an RGB amount: {keysend_cmd}");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				};
 				let amt_rgb: u64 = match amt_rgb_str.parse() {
 					Ok(amt) => amt,
 					Err(e) => {
 						let response = format!("ERROR: couldn't parse amt_rgb: {e}");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				};
 				keysend(
@@ -1018,7 +1022,7 @@ pub(crate) async fn handle_command(
 				);
 
 				let response = "Keysend conducted";
-				return Some(response.to_string());
+				return (Some(response.to_string()), true);
 			}
 			"getinvoice" => {
 				let getinvoice_cmd =
@@ -1034,24 +1038,24 @@ pub(crate) async fn handle_command(
 					|| amt_rgb_str.is_none()
 				{
 					let response = format!("ERROR: getinvoice has 4 required arguments: {getinvoice_cmd}");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let amt_msat: Result<u64, _> = amt_str.unwrap().parse();
 				if amt_msat.is_err() {
 					let response = ("ERROR: getinvoice provided payment amount was not a number");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let amt_msat = amt_msat.unwrap();
 				if amt_msat < INVOICE_MIN_MSAT {
 					let response = format!("ERROR: amt_msat cannot be less than {INVOICE_MIN_MSAT}");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let expiry_secs: Result<u32, _> = expiry_secs_str.unwrap().parse();
 				if expiry_secs.is_err() {
 					let response = ("ERROR: getinvoice provided expiry was not a number");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let contract_id_str = contract_id_str.unwrap();
@@ -1059,7 +1063,7 @@ pub(crate) async fn handle_command(
 					Ok(cid) => cid,
 					Err(_) => {
 						let response = format!("ERROR: invalid contract ID: {contract_id_str}");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				};
 
@@ -1067,7 +1071,7 @@ pub(crate) async fn handle_command(
 					Ok(amt) => amt,
 					Err(e) => {
 						let response = format!("ERROR: couldn't parse amt_rgb: {e}");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				};
 
@@ -1084,20 +1088,20 @@ pub(crate) async fn handle_command(
 				);
 
 				let response = ("Invoice generated");
-				return Some(response.to_string());
+				return (Some(response.to_string()), true);
 			}
 			"connectpeer" => {
 				let peer_pubkey_and_ip_addr = words.next();
 				if peer_pubkey_and_ip_addr.is_none() {
 					let response = ("ERROR: connectpeer requires peer connection info: `connectpeer pubkey@host:port`");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let (pubkey, peer_addr) =
 					match parse_peer_info(peer_pubkey_and_ip_addr.unwrap().to_string()) {
 						Ok(info) => info,
 						Err(e) => {
 							let response = format!("{:?}", e.into_inner().unwrap());
-							return Some(response.to_string());
+							return (Some(response.to_string()), false);
 						}
 					};
 				if connect_peer_if_necessary(pubkey, peer_addr, peer_manager.clone())
@@ -1105,17 +1109,17 @@ pub(crate) async fn handle_command(
 					.is_ok()
 				{
 					let response = format!("SUCCESS: connected to peer {}", pubkey);
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let response = format!("ERROR: unable to connect to peer or already connected {}", pubkey);
-				return Some(response.to_string());
+				return (Some(response.to_string()), true);
 			}
 			"disconnectpeer" => {
 				let peer_pubkey = words.next();
 				if peer_pubkey.is_none() {
 					let response = ("ERROR: disconnectpeer requires peer public key: `disconnectpeer <peer_pubkey>`");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 
 				let peer_pubkey =
@@ -1123,7 +1127,7 @@ pub(crate) async fn handle_command(
 						Ok(pubkey) => pubkey,
 						Err(e) => {
 							let response = format!("ERROR: {}", e.to_string());
-							return Some(response.to_string());
+							return (Some(response.to_string()), false);
 						}
 					};
 
@@ -1135,18 +1139,18 @@ pub(crate) async fn handle_command(
 				.is_ok()
 				{
 					let response = format!("SUCCESS: disconnected from peer {}", peer_pubkey);
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let response = format!("ERROR: unable to disconnect from peer {}", peer_pubkey);
-				return Some(response.to_string());
+				return (Some(response.to_string()), true);
 			}
 			"listchannels" => {
 				let response = list_channels(&channel_manager, &network_graph, ldk_data_dir.clone());
-				return Some(response.to_string());
+				return (Some(response.to_string()), false);
 			}
 			"listpayments" => {
 				let response = list_payments(inbound_payments.clone(), outbound_payments.clone());
-				return Some(response.to_string());
+				return (Some(response.to_string()), false);
 			}
 			"invoicestatus" => {
 				let invoice = words.next();
@@ -1154,29 +1158,29 @@ pub(crate) async fn handle_command(
 					let response = (
 						"ERROR: invoicestatus requires an invoice: `invoicestatus <invoice>`"
 					);
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				};
 				let invoice = match Invoice::from_str(invoice.unwrap()) {
 					Err(e) => {
 						let response = format!("ERROR: invalid invoice: {:?}", e);
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 					Ok(v) => v,
 				};
 
 				let response = invoice_status(inbound_payments.clone(), invoice).unwrap();
-				return Some(response.to_string());
+				return (Some(response.to_string()), false);
 			}
 			"closechannel" => {
 				let channel_id_str = words.next();
 				if channel_id_str.is_none() {
 					let response = ("ERROR: closechannel requires a channel ID: `closechannel <channel_id> <peer_pubkey>`");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let channel_id_vec = hex_utils::to_vec(channel_id_str.unwrap());
 				if channel_id_vec.is_none() || channel_id_vec.as_ref().unwrap().len() != 32 {
 					let response = ("ERROR: couldn't parse channel_id");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let mut channel_id = [0; 32];
 				channel_id.copy_from_slice(&channel_id_vec.unwrap());
@@ -1184,36 +1188,36 @@ pub(crate) async fn handle_command(
 				let peer_pubkey_str = words.next();
 				if peer_pubkey_str.is_none() {
 					let response = ("ERROR: closechannel requires a peer pubkey: `closechannel <channel_id> <peer_pubkey>`");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let peer_pubkey_vec = match hex_utils::to_vec(peer_pubkey_str.unwrap()) {
 					Some(peer_pubkey_vec) => peer_pubkey_vec,
 					None => {
 						let response = ("ERROR: couldn't parse peer_pubkey");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				};
 				let peer_pubkey = match PublicKey::from_slice(&peer_pubkey_vec) {
 					Ok(peer_pubkey) => peer_pubkey,
 					Err(_) => {
 						let response = ("ERROR: couldn't parse peer_pubkey");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				};
 
 				let response = close_channel(channel_id, peer_pubkey, channel_manager.clone()).unwrap();
-				return Some(response.to_string());
+				return (Some(response.to_string()), false);
 			}
 			"forceclosechannel" => {
 				let channel_id_str = words.next();
 				if channel_id_str.is_none() {
 					let response = ("ERROR: forceclosechannel requires a channel ID: `forceclosechannel <channel_id> <peer_pubkey>`");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let channel_id_vec = hex_utils::to_vec(channel_id_str.unwrap());
 				if channel_id_vec.is_none() || channel_id_vec.as_ref().unwrap().len() != 32 {
 					let response = ("ERROR: couldn't parse channel_id");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let mut channel_id = [0; 32];
 				channel_id.copy_from_slice(&channel_id_vec.unwrap());
@@ -1221,36 +1225,39 @@ pub(crate) async fn handle_command(
 				let peer_pubkey_str = words.next();
 				if peer_pubkey_str.is_none() {
 					let response = ("ERROR: forceclosechannel requires a peer pubkey: `forceclosechannel <channel_id> <peer_pubkey>`");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let peer_pubkey_vec = match hex_utils::to_vec(peer_pubkey_str.unwrap()) {
 					Some(peer_pubkey_vec) => peer_pubkey_vec,
 					None => {
 						let response = ("ERROR: couldn't parse peer_pubkey");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				};
 				let peer_pubkey = match PublicKey::from_slice(&peer_pubkey_vec) {
 					Ok(peer_pubkey) => peer_pubkey,
 					Err(_) => {
 						let response = ("ERROR: couldn't parse peer_pubkey");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				};
 
 				let response = force_close_channel(channel_id, peer_pubkey, channel_manager.clone()).unwrap();
-				return Some(response.to_string());
+				return (Some(response.to_string()), false);
 			}
 			"nodeinfo" => {
 				let response = node_info(&channel_manager, &peer_manager).unwrap();
-				return Some(response.to_string());
+				return (Some(response.to_string()), false);
 			},
-			"listpeers" => list_peers(peer_manager.clone()),
+			"listpeers" => {
+				let response = list_peers(peer_manager.clone()).unwrap();
+				return (Some(response.to_string()), false);
+			},
 			"signmessage" => {
 				const MSG_STARTPOS: usize = "signmessage".len() + 1;
 				if line.as_bytes().len() <= MSG_STARTPOS {
 					let response = ("ERROR: signmsg requires a message");
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let response = format!(
 					"{:?}",
@@ -1259,7 +1266,7 @@ pub(crate) async fn handle_command(
 						&keys_manager.get_node_secret_key()
 					)
 				);
-				return Some(response.to_string());
+				return (Some(response.to_string()), true);
 			}
 			"sendonionmessage" => {
 				let path_pks_str = words.next();
@@ -1267,7 +1274,7 @@ pub(crate) async fn handle_command(
 					let response = (
 						"ERROR: sendonionmessage requires at least one node id for the path"
 					);
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let mut node_pks = Vec::new();
 				let mut errored = false;
@@ -1292,20 +1299,20 @@ pub(crate) async fn handle_command(
 					node_pks.push(node_pubkey);
 				}
 				if errored {
-					return Some(response.to_string());
+					return (Some(response.to_string()), false);
 				}
 				let tlv_type = match words.next().map(|ty_str| ty_str.parse()) {
 					Some(Ok(ty)) if ty >= 64 => ty,
 					_ => {
 						let response = ("Need an integral message type above 64");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				};
 				let data = match words.next().map(|s| hex_utils::to_vec(s)) {
 					Some(Some(data)) => data,
 					_ => {
 						let response = ("Need a hex data string");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					}
 				};
 				let destination_pk = node_pks.pop().unwrap();
@@ -1317,27 +1324,27 @@ pub(crate) async fn handle_command(
 				) {
 					Ok(()) => {
 						let response = ("SUCCESS: forwarded onion message to first hop");
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					},
 					Err(e) => {
 						let response = format!("ERROR: failed to send onion message: {:?}", e);
-						return Some(response.to_string());
+						return (Some(response.to_string()), false);
 					},
 				}
 			}
 			"quit" | "exit" => {
 				let response = ("Exiting node...");
-				return Some(response.to_string())
+				return (Some(response.to_string()), false)
 			}
 			_ => {
 				let response = ("Unknown command. See `\"help\" for available commands.");
-				return Some(response.to_string())
+				return (Some(response.to_string()), false)
 			},
 		}
 	}
 	let response = "No command entered. See `\"help\" for available commands.";
 	
-	return Some(response.to_string())
+	return (Some(response.to_string()), false)
 
 }
 
@@ -1400,12 +1407,14 @@ fn node_info(channel_manager: &Arc<ChannelManager>, peer_manager: &Arc<PeerManag
 	Some(response)
 }
 
-fn list_peers(peer_manager: Arc<PeerManager>) {
-	println!("\t{{");
+fn list_peers(peer_manager: Arc<PeerManager>) -> Option<String> {
+	let mut response = String::new();
+	response.push_str("\t{{\n");
 	for (pubkey, _) in peer_manager.get_peer_node_ids() {
-		println!("\t\t pubkey: {}", pubkey);
+		response.push_str(&format!("\t\t peer_pubkey: {pubkey}\n"));
 	}
-	println!("\t}},");
+	response.push_str("\t}},\n");
+	Some(response)
 }
 
 fn list_channels(
@@ -1761,13 +1770,13 @@ fn get_invoice(
 fn close_channel(
 	channel_id: [u8; 32], counterparty_node_id: PublicKey, channel_manager: Arc<ChannelManager>,
 ) -> Option<String> {
-	let response = "";
+	let mut response = String::new();
 	match channel_manager.close_channel(&channel_id, &counterparty_node_id) {
 		Ok(()) => {
-			let response = format!("EVENT: initiating channel close");
+			response.push_str(&format!("EVENT: initiating channel close"));
 		},
 		Err(e) => {
-			let response = format!("ERROR: failed to close channel: {:?}", e);
+			response.push_str(&format!("ERROR: failed to close channel: {:?}", e));
 		},
 	}
 	return Some(response.to_string());
@@ -1776,13 +1785,13 @@ fn close_channel(
 fn force_close_channel(
 	channel_id: [u8; 32], counterparty_node_id: PublicKey, channel_manager: Arc<ChannelManager>,
 ) -> Option<String> {
-	let response = "";
+	let mut response = String::new();
 	match channel_manager.force_close_broadcasting_latest_txn(&channel_id, &counterparty_node_id) {
 		Ok(()) => {
-			let response = format!("EVENT: initiating channel force-close");
+			response.push_str(&format!("EVENT: initiating channel force-close"));
 		},
 		Err(e) => {
-			let response = format!("ERROR: failed to force-close channel: {:?}", e);
+			response.push_str(&format!("ERROR: failed to force-close channel: {:?}", e));
 		},
 	}
 	return Some(response.to_string());
