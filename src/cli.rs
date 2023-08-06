@@ -947,7 +947,7 @@ pub(crate) async fn handle_command(
 					PathBuf::from(&ldk_data_dir),
 				);
 
-				let response = "Payment sent";
+				let response = "Payment initiated";
 				return (Some(response.to_string()), true);
 			}
 			"keysend" => {
@@ -1754,7 +1754,7 @@ fn get_invoice(
 	) {
 		Ok(inv) => {
 			response = serde_json::to_string(&InvoiceString {invoice_string: inv.to_string()}).unwrap();
-			println!("{}", response);
+			println!("SUCCESS: generated invoice: {}", inv);
 			inv
 		}
 		Err(e) => {
