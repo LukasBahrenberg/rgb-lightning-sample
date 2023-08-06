@@ -644,6 +644,7 @@ pub(crate) async fn handle_command(
 				drop_rgb_runtime(&PathBuf::from(ldk_data_dir.clone()));
 
 				sync_wallet(&wallet, electrum_url.clone());
+				
 				let response = format!("RGB send complete, txid: {}", tx.txid());
 				return (Some(response.to_string()), false);
 			}
@@ -696,7 +697,7 @@ pub(crate) async fn handle_command(
 					serde_json::to_string(&blinded_info).expect("valid rgb info");
 				fs::write(blinded_path, serialized_info).expect("successful file write");
 
-				let response = ("Blinded UTXO: {blinded_utxo}");
+				let response = format!("Blinded UTXO: {blinded_utxo}");
 				return (Some(response.to_string()), false);
 			}
 			"refresh" => {
