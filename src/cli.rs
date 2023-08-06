@@ -1076,7 +1076,7 @@ pub(crate) async fn handle_command(
 					}
 				};
 
-				get_invoice(
+				let response = get_invoice(
 					amt_msat,
 					Arc::clone(&inbound_payments),
 					&*channel_manager,
@@ -1086,9 +1086,8 @@ pub(crate) async fn handle_command(
 					Arc::clone(&logger),
 					contract_id,
 					amt_rgb,
-				);
+				).unwrap();
 
-				let response = ("Invoice generated");
 				return (Some(response.to_string()), true);
 			}
 			"connectpeer" => {
@@ -1722,11 +1721,18 @@ fn keysend<E: EntropySource>(
 	);
 }
 
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct InvoiceString {
+	invoice_string: String,
+}
+
 fn get_invoice(
 	amt_msat: u64, payment_storage: PaymentInfoStorage, channel_manager: &ChannelManager,
 	keys_manager: Arc<KeysManager>, network: Network, expiry_secs: u32,
 	logger: Arc<disk::FilesystemLogger>, contract_id: ContractId, amt_rgb: u64,
-) {
+) -> Option<String> {
+	let response: String;
 	let mut payments = payment_storage.lock().unwrap();
 	let currency = match network {
 		Network::Bitcoin => Currency::Bitcoin,
@@ -1747,12 +1753,14 @@ fn get_invoice(
 		Some(amt_rgb),
 	) {
 		Ok(inv) => {
-			println!("SUCCESS: generated invoice: {}", inv);
+			response = serde_json::to_string(&InvoiceString {invoice_string: inv.to_string()}).unwrap();
+			println!("{}", response);
 			inv
 		}
 		Err(e) => {
-			println!("ERROR: failed to create invoice: {:?}", e);
-			return;
+			response = format!("ERROR: failed to create invoice: {:?}", e);
+			println!("{}", response);
+			return Some(response);
 		}
 	};
 
@@ -1766,6 +1774,8 @@ fn get_invoice(
 			amt_msat: MillisatAmount(Some(amt_msat)),
 		},
 	);
+
+	return Some(response);
 }
 
 fn close_channel(
