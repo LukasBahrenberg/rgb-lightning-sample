@@ -57,7 +57,9 @@ use seals::txout::TxPtr;
 use serde::{Deserialize, Serialize};
 use strict_encoding::{FieldName, TypeName};
 
-use std::convert::TryFrom;
+use rand::Rng;
+
+use std::convert::{TryFrom, TryInto};
 use std::env;
 use std::fs;
 use std::io;
@@ -1090,6 +1092,140 @@ pub(crate) async fn handle_command(
 
 				return (Some(response.to_string()), true);
 			}
+			"generatetestpreimage" => {
+				// create random preimage for testing
+				
+				let mut rng = rand::thread_rng();
+				let payment_preimage: [u8; 32] = rng.gen();
+				
+				let payment_preimage = PaymentPreimage(payment_preimage);
+				let payment_hash = PaymentHash(Sha256::hash(&payment_preimage.0).into_inner());
+
+				let test_preimage_data = TestPreimageData {
+					payment_preimage,
+					payment_hash,
+				};
+
+				let response = format!("This is a preimage / payment hash pair for testing: \n{:?} \nPreimage: {} \nPayment hash: {}", 
+					test_preimage_data,
+					hex::encode(&test_preimage_data.payment_preimage.0),
+					hex::encode(&test_preimage_data.payment_hash.0),
+				);
+				
+				return (Some(response.to_string()), false)
+			}
+			"gethodlinvoice" => {
+				let gethodlinvoice_cmd =
+					"`gethodlinvoice <amt_msats> <expiry_secs> <rgb_contract_id> <amt_rgb> <payment_hash>`";
+				let amt_str = words.next();
+				let expiry_secs_str = words.next();
+				let contract_id_str = words.next();
+				let amt_rgb_str = words.next();
+				let payment_hash = words.next();
+
+				if amt_str.is_none()
+					|| expiry_secs_str.is_none()
+					|| contract_id_str.is_none()
+					|| amt_rgb_str.is_none()
+					|| payment_hash.is_none()
+				{
+					let response = format!("ERROR: getinvoice has 5 required arguments: {gethodlinvoice_cmd}");
+					
+					return (Some(response.to_string()), false)
+				}
+
+				let amt_msat: Result<u64, _> = amt_str.unwrap().parse();
+				if amt_msat.is_err() {
+					let response = format!("ERROR: getinvoice provided payment amount was not a number");
+					
+					return (Some(response.to_string()), false)
+				}
+				let amt_msat = amt_msat.unwrap();
+				if amt_msat < INVOICE_MIN_MSAT {
+					let response = format!("ERROR: amt_msat cannot be less than {INVOICE_MIN_MSAT}");
+					
+					return (Some(response.to_string()), false)
+				}
+
+				let expiry_secs: Result<u32, _> = expiry_secs_str.unwrap().parse();
+				if expiry_secs.is_err() {
+					let response = format!("ERROR: getinvoice provided expiry was not a number");
+					
+					return (Some(response.to_string()), false)
+				}
+
+				let contract_id_str = contract_id_str.unwrap();
+				let contract_id = match ContractId::from_str(contract_id_str) {
+					Ok(cid) => cid,
+					Err(_) => {
+						let response = format!("ERROR: invalid contract ID: {contract_id_str}");
+						
+						return (Some(response.to_string()), false)
+					}
+				};
+
+				let amt_rgb: u64 = match amt_rgb_str.unwrap().parse() {
+					Ok(amt) => amt,
+					Err(e) => {
+						let response = format!("ERROR: couldn't parse amt_rgb: {e}");
+		
+						return (Some(response.to_string()), false)
+					}
+				};
+
+				let payment_hash: String = match payment_hash.unwrap().parse::<String>() {
+					Ok(hash) => hash,
+					Err(e) => {
+						let response = format!("ERROR: couldn't parse payment_hash: {e}");
+		
+						return (Some(response.to_string()), false)
+					}
+				};
+
+				let response = get_hodl_invoice(
+					amt_msat,
+					Arc::clone(&inbound_payments),
+					&*channel_manager,
+					Arc::clone(&keys_manager),
+					network,
+					expiry_secs.unwrap(),
+					Arc::clone(&logger),
+					contract_id,
+					amt_rgb,
+					payment_hash,
+				);
+				
+				return (Some(response.to_string()), false)
+			}
+			"settlehodlinvoice" => {
+				let getinvoice_cmd =
+					"`settlehodlinvoice <preimage>`";
+				let preimage = words.next();
+
+				if preimage.is_none()
+				{
+					let response = format!("ERROR: getinvoice has 1 required arguments: {getinvoice_cmd}");
+					
+					return (Some(response.to_string()), false)
+
+				}
+
+				let preimage: String = match preimage.unwrap().parse::<String>() {
+					Ok(preimage) => preimage,
+					Err(e) => {
+						let response = format!("ERROR: couldn't parse preimage: {e}");
+		
+						return (Some(response.to_string()), false)
+					}
+				};
+
+				let response = settle_hodl_invoice(
+					preimage,
+					&*channel_manager,
+				);
+				
+				return (Some(response.to_string()), false)
+			}
 			"connectpeer" => {
 				let peer_pubkey_and_ip_addr = words.next();
 				if peer_pubkey_and_ip_addr.is_none() {
@@ -1862,3 +1998,78 @@ pub(crate) async fn mine(bitcoind_client: &BitcoindClient, num_blocks: u16) {
 	let address = bitcoind_client.get_new_address().await.to_string();
 	bitcoind_client.generate_to_adress(num_blocks, address).await;
 }
+
+
+// hodl invoice
+
+#[derive(Clone, Debug)]
+struct TestPreimageData {
+	payment_preimage: PaymentPreimage,
+	payment_hash: PaymentHash,
+}
+
+fn get_hodl_invoice(
+	amt_msat: u64, payment_storage: PaymentInfoStorage, channel_manager: &ChannelManager,
+	keys_manager: Arc<KeysManager>, network: Network, expiry_secs: u32,
+	logger: Arc<disk::FilesystemLogger>, contract_id: ContractId, amt_rgb: u64, payment_hash: String,
+) -> String {
+	let mut payments = payment_storage.lock().unwrap();
+	let currency = match network {
+		Network::Bitcoin => Currency::Bitcoin,
+		Network::Testnet => Currency::BitcoinTestnet,
+		Network::Regtest => Currency::Regtest,
+		Network::Signet => Currency::Signet,
+	};
+	let response: String;
+	let payment_hash = PaymentHash(hex::decode(payment_hash).unwrap().try_into().expect("payment hash string slice has incorrect length"));
+	use std::time::SystemTime;
+	let invoice = match utils::create_invoice_from_channelmanager_and_duration_since_epoch_with_payment_hash(
+		channel_manager,
+		keys_manager,
+		logger,
+		currency,
+		Some(amt_msat),
+		"ldk-tutorial-node".to_string(),
+		Duration::new(SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs(), 0),
+		expiry_secs,
+		payment_hash,
+		None,
+		Some(contract_id),
+		Some(amt_rgb),
+	)
+	{
+		Ok(inv) => {
+			response = serde_json::to_string(&InvoiceString {invoice_string: inv.to_string()}).unwrap();
+			println!("{}", response);
+			inv
+		}
+		Err(e) => {
+			response = format!("ERROR: failed to create invoice: {:?}", e);
+			println!("{}", response);
+			return response;
+		}
+	};
+
+	let payment_hash = PaymentHash(invoice.payment_hash().clone().into_inner());
+	payments.insert(
+		payment_hash,
+		PaymentInfo {
+			preimage: None,
+			secret: Some(invoice.payment_secret().clone()),
+			status: HTLCStatus::Pending,
+			amt_msat: MillisatAmount(Some(amt_msat)),
+		},
+	);
+	
+	return response;
+}
+
+fn settle_hodl_invoice(
+	preimage: String, 
+	channel_manager: &ChannelManager,
+) -> String {
+
+	channel_manager.claim_funds(PaymentPreimage(hex::decode(preimage).unwrap().try_into().expect("preimage string slice has incorrect length")));
+
+	return "Payment claim seems to have succeeded! The invoice should be settled".to_string()
+} 

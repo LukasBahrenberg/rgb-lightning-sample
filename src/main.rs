@@ -380,7 +380,15 @@ async fn handle_ldk_events(
 				PaymentPurpose::InvoicePayment { payment_preimage, .. } => payment_preimage,
 				PaymentPurpose::SpontaneousPayment(preimage) => Some(preimage),
 			};
-			channel_manager.claim_funds(payment_preimage.unwrap());
+			match payment_preimage {
+				Some(payment_preimage) => {
+					println!("Event::PaymentClaimable was triggered and preimage is available. channel_manager.claim_funds() will be called.");
+					channel_manager.claim_funds(payment_preimage);
+				},
+				None => {
+					println!("Event::PaymentClaimable was triggered but no preimage is available. This could be due to a hodl invoice having been paid.");
+				},
+			}		
 		}
 		Event::PaymentClaimed { payment_hash, purpose, amount_msat, receiver_node_id: _ } => {
 			println!(
