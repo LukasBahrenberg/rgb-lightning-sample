@@ -12,11 +12,11 @@ create_utxos 2
 issue_asset
 
 # open channel (1)
-open_channel 1 2 "$NODE2_PORT" "$node2_id" 1000
+open_channel 1 2 "$NODE2_PORT" "$NODE2_ID" 600
 list_channels 1
 list_channels 2
 
 # send assets (1)
-keysend 1 2 "$node2_id" 100
+keysend 1 2 "$NODE2_ID" 100
 list_channels 1
 list_channels 2
