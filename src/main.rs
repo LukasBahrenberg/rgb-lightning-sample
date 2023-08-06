@@ -10,6 +10,8 @@ mod hex_utils;
 mod proxy;
 mod rgb_utils;
 
+mod restapi;
+
 use crate::bdk_utils::{broadcast_tx, get_bdk_wallet, get_bdk_wallet_seckey, sync_wallet};
 use crate::bitcoind_client::BitcoindClient;
 use crate::disk::FilesystemLogger;
@@ -1332,6 +1334,10 @@ async fn start_ldk() {
 		}
 	});
 
+	// Derive rest api port from ldk_peer_listening_port before args value move
+	let rest_api_port = args.ldk_peer_listening_port.clone() + 10000;
+	println!("REST API listening on port {}", rest_api_port);
+
 	// Regularly broadcast our node_announcement. This is only required (or possible) if we have
 	// some public channels, and is only useful if we have public listen address(es) to announce.
 	// In a production environment, this should occur only after the announcement of new channels
@@ -1352,26 +1358,38 @@ async fn start_ldk() {
 		});
 	}
 
-	// Start the CLI.
-	cli::poll_for_user_input(
+	// Create data struct usable by rest api and cli
+	use crate::cli::SharedData;
+
+	let shared_data = SharedData::new(
 		Arc::clone(&peer_manager),
 		Arc::clone(&channel_manager),
 		Arc::clone(&keys_manager),
 		Arc::clone(&network_graph),
 		Arc::clone(&onion_messenger),
-		inbound_payments,
-		outbound_payments,
+		inbound_payments.clone(),
+		outbound_payments.clone(),
 		ldk_data_dir.clone(),
-		network,
+		network.clone(),
 		Arc::clone(&logger),
 		Arc::clone(&bitcoind_client),
 		proxy_client.clone(),
-		proxy_url,
-		proxy_endpoint,
+		proxy_url.to_string().clone(),
+		proxy_endpoint.to_string().clone(),
 		wallet.clone(),
-		electrum_url.to_string(),
-	)
-	.await;
+		electrum_url.to_string().clone(),
+	);
+
+	let shared_data_clone = shared_data.clone();
+
+	// Start the REST API in a parallel thread to CLI.
+	use std::thread;
+	thread::spawn(move || {
+		let _ = restapi::start_api(shared_data_clone, rest_api_port);
+	});
+
+	// Start the CLI.
+	cli::poll_for_user_input(shared_data).await;
 
 	// Disconnect our peers and stop accepting new connections. This ensures we don't continue
 	// updating our channel data after we've stopped the background processor.
