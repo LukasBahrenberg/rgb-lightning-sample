@@ -1022,7 +1022,7 @@ pub(crate) async fn handle_command(
 					PathBuf::from(&ldk_data_dir),
 				);
 
-				let response = "Keysend conducted";
+				let response = "Keysend initiated";
 				return (Some(response.to_string()), true);
 			}
 			"getinvoice" => {
