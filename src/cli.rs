@@ -1532,24 +1532,27 @@ fn help() {
 fn node_info(channel_manager: &Arc<ChannelManager>, peer_manager: &Arc<PeerManager>) -> Option<String> {
 	let mut response = String::new();
 	response.push_str("\t{{\n");
-	response.push_str(&format!("\t\t node_pubkey: {}\n", channel_manager.get_our_node_id()));
+	response.push_str(&format!("\t\t node_pubkey: {},\n", channel_manager.get_our_node_id()));
 	let chans = channel_manager.list_channels();
-	response.push_str(&format!("\t\t num_channels: {}\n", chans.len()));
-	response.push_str(&format!("\t\t num_usable_channels: {}\n", chans.iter().filter(|c| c.is_usable).count()));
+	response.push_str(&format!("\t\t num_channels: {},\n", chans.len()));
+	response.push_str(&format!("\t\t num_usable_channels: {},\n", chans.iter().filter(|c| c.is_usable).count()));
 	let local_balance_msat = chans.iter().map(|c| c.balance_msat).sum::<u64>();
-	response.push_str(&format!("\t\t local_balance_msat: {}\n", local_balance_msat));
+	response.push_str(&format!("\t\t local_balance_msat: {},\n", local_balance_msat));
 	response.push_str(&format!("\t\t num_peers: {}\n", peer_manager.get_peer_node_ids().len()));
-	response.push_str("\t}},\n");
+	response.push_str("\t}}\n");
 	Some(response)
 }
 
 fn list_peers(peer_manager: Arc<PeerManager>) -> Option<String> {
 	let mut response = String::new();
-	response.push_str("\t{{\n");
+	response.push_str("[\n");
 	for (pubkey, _) in peer_manager.get_peer_node_ids() {
+		response.push_str("\n");
+		response.push_str("\t{{\n");
 		response.push_str(&format!("\t\t peer_pubkey: {pubkey}\n"));
+		response.push_str("\t}},\n");
 	}
-	response.push_str("\t}},\n");
+	response.push_str("]\n");
 	Some(response)
 }
 
@@ -1607,7 +1610,7 @@ fn list_channels(
 		};
 		response.push_str(&format!("\t\trgb_contract_id: {},\n", contract_id));
 		response.push_str(&format!("\t\trgb_local_amount: {},\n", local_rgb_amount));
-		response.push_str(&format!("\t\trgb_remote_amount: {},\n", remote_rgb_amount));
+		response.push_str(&format!("\t\trgb_remote_amount: {}\n", remote_rgb_amount));
 		response.push_str("\t}},\n");
 	}
 	response.push_str("]\n");
@@ -1648,10 +1651,10 @@ fn list_payments(
 	for (payment_hash, payment_info) in inbound.deref() {
 		response.push_str("\n");
 		response.push_str("\t{{\n");
-		response.push_str(&format!("\t\tamount_millisatoshis: {},\n", payment_info.amt_msat));
-		response.push_str(&format!("\t\tpayment_hash: {},\n", hex_utils::hex_str(&payment_hash.0)));
-		response.push_str("\t\thtlc_direction: inbound,\n");
-		response.push_str(&format!("\t\thtlc_status: {},\n", match payment_info.status {
+		response.push_str(&format!("\t\t amount_millisatoshis: {},\n", payment_info.amt_msat));
+		response.push_str(&format!("\t\t payment_hash: {},\n", hex_utils::hex_str(&payment_hash.0)));
+		response.push_str("\t\t htlc_direction: inbound,\n");
+		response.push_str(&format!("\t\t htlc_status: {}\n", match payment_info.status {
 			HTLCStatus::Pending => "pending",
 			HTLCStatus::Succeeded => "succeeded",
 			HTLCStatus::Failed => "failed",
@@ -1662,10 +1665,10 @@ fn list_payments(
 	for (payment_hash, payment_info) in outbound.deref() {
 		response.push_str("\n");
 		response.push_str("\t{{\n");
-		response.push_str(&format!("\t\tamount_millisatoshis: {},\n", payment_info.amt_msat));
-		response.push_str(&format!("\t\tpayment_hash: {},\n", hex_utils::hex_str(&payment_hash.0)));
-		response.push_str("\t\thtlc_direction: outbound,\n");
-		response.push_str(&format!("\t\thtlc_status: {},\n", match payment_info.status {
+		response.push_str(&format!("\t\t amount_millisatoshis: {},\n", payment_info.amt_msat));
+		response.push_str(&format!("\t\t payment_hash: {},\n", hex_utils::hex_str(&payment_hash.0)));
+		response.push_str("\t\t htlc_direction: outbound,\n");
+		response.push_str(&format!("\t\t htlc_status: {}\n", match payment_info.status {
 			HTLCStatus::Pending => "pending",
 			HTLCStatus::Succeeded => "succeeded",
 			HTLCStatus::Failed => "failed",
